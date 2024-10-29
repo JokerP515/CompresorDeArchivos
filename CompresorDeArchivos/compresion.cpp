@@ -68,7 +68,7 @@ int main()
 {
 	string inputFilename = "input2.txt";
 	string outputFilename = "output4.gzip";
-	string decompressedFilename = "txt.txt";
+	string decompressedFilename = "pepe.txt";
 
 	string fileData = readFile(inputFilename);
 	writeCompressedFile(outputFilename, fileData);
