@@ -1,18 +1,36 @@
-// THis version is NOT tested yet, it will write some metadata stuff to get the original file, just like a normal ZIP file
 #include<iostream>
 #include<fstream>
 #include<vector>
 #include<zlib.h>
 using namespace std;
 
-string readFile(const string& filename){
+string readFile(const string& filename){ // Lee el archivo sin comprimir y lo guarda en un string
     ifstream file(filename, ios::binary);
     string content((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
     
     return content;
 }
 
-void writeCompressedFile(const string& filename, const string& content, int compressionLevel = Z_BEST_COMPRESSION){
+// Se lee el archivo comprimido y se guarda en un string
+string readCompressedFile(const string& filename, string& originalFilename){
+    ifstream inputFile(filename, ios::binary);
+
+    // Leer la longitud del nombre del archivo original
+    uint32_t nameLength = 0;
+    inputFile.read(reinterpret_cast<char*>(&nameLength), sizeof(nameLength));
+
+    // Leer el nombre del archivo original
+    originalFilename.resize(nameLength);
+    inputFile.read(&originalFilename[0], nameLength);
+
+    // Leer el contenido comprimido
+    string compressedData((istreambuf_iterator<char>(inputFile)), istreambuf_iterator<char>());
+
+    return compressedData;
+}
+
+
+void writeCompressedFile(const string& inputFilename,const string& filename, const string& content, int compressionLevel = Z_BEST_COMPRESSION){
     uLong sourceLength = (uLong)content.size();
     uLong destLength = compressBound(sourceLength);
 
@@ -40,22 +58,14 @@ void writeCompressedFile(const string& filename, const string& content, int comp
 }
 
 void decompressFile(const string& compressedFilename){
-    ifstream inputFile(compressedFilename, ios::binary);
+    string originalFilename;
+    string compressedData = readCompressedFile(compressedFilename, originalFilename);
 
-    uint32_t nameLength; // Se lee la longitud del nombre del archivo original
-    inputFile.read(reinterpret_cast<char*>(&nameLength), sizeof(nameLength));
-
-    string originalFilename(nameLength, '\0');
-    inputFile.read(&originalFilename[0], nameLength);
-
-    // Leer el contenido comprimido
-    string compressedData((istreambuf_iterator<char>(inputFile)), istreambuf_iterator<char>());
-
-    uLongf uncompressedLength = compressedData.size() * 10;
+    uLongf uncompressedLength = compressedData.size() * 10; // Estima el tamaño del buffer de salida
     vector<char> uncompressedData(uncompressedLength);
 
     int result = uncompress(reinterpret_cast<Bytef*>(uncompressedData.data()), &uncompressedLength,
-                            reinterpret_cast<const Bytef*>(compressedData.data()), (uLong)compressedData.size());
+        reinterpret_cast<const Bytef*>(compressedData.data()), (uLong)compressedData.size());
 
     if (result == Z_OK)
     {
@@ -76,7 +86,9 @@ int main(){
     
     string fileData = readFile(inputFilename);
     
-    writeCompressedFile(outputFilename, fileData);
+    writeCompressedFile(inputFilename,outputFilename, fileData);
+
+    system("pause");
     
     decompressFile(outputFilename);
     
