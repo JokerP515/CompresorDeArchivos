@@ -1,10 +1,9 @@
-// This version compress and decompress files and directories
-// But it will give some strange problem with csv files
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <zlib.h>
 #include <filesystem>
+#include <cctype>
 
 using namespace std;
 namespace fs = filesystem;
@@ -159,7 +158,7 @@ void decompressFile(const string& compressedFilename) {
 
         string compressedData((istreambuf_iterator<char>(inputFile)), istreambuf_iterator<char>());
 
-        uLongf uncompressedLength = compressedData.size() * 10;
+        uLongf uncompressedLength = (uLongf)compressedData.size() * 10;
         vector<char> uncompressedData(uncompressedLength);
 
         int result = uncompress(reinterpret_cast<Bytef*>(uncompressedData.data()), &uncompressedLength,
@@ -177,9 +176,12 @@ void decompressFile(const string& compressedFilename) {
 }
 
 
-int main() {
-    string inputPath = "Union de Automatas.txt";  // Cambia esto a la ruta que deseas comprimir
-    string outputFilename = "outputTest2.gzip";
+int main(int argc, char* argv[]) {
+    /*string inputPath = "gatito.txt";  // Cambia esto a la ruta que deseas comprimir
+    //  string outputFilename = "outputTest2.gzip";
+    string baseName = fs::path(inputPath).stem().string(); //fs::path(inputPath).filename().string()
+    baseName[0] = isalpha(baseName[0]) ? toupper(baseName[0]) : baseName[0];
+    string outputFilename = "comprimido" + baseName + ".gzip";
 
     if (isDirectory(inputPath)) {
         compressDirectory(inputPath, outputFilename);
@@ -192,7 +194,39 @@ int main() {
     system("pause");
 
     // Descompresión
-    decompressFile(outputFilename);
+    decompressFile(outputFilename);*/
+    
+    if (argc > 2) {
+        char* op = argv[1]; // 1 para comprimir, 2 para descomprimir
+        switch (*op)
+        {
+        case '1': {
+            string inputPath = argv[2];
+            string baseName = fs::path(inputPath).stem().string(); //fs::path(inputPath).filename().string()
+            baseName[0] = isalpha(baseName[0]) ? toupper(baseName[0]) : baseName[0];
+            string outputFilename ="comprimido" + baseName + ".gzip";
+            if (isDirectory(inputPath)) {
+				compressDirectory(inputPath, outputFilename);
+			}
+			else {
+				string fileData = readFile(inputPath);
+				writeCompressedFile(inputPath, outputFilename, fileData);
+			}
+            break;
+        }
+        case '2': {
+			string inputPath = argv[2];
+			decompressFile(inputPath);
+			break;
+        }
+        default:
+			cout << "Opción no válida\n";
+			break;
+		}
+    }
+	else {
+		cout << "Faltan argumentos\n";
+	}
 
     return 0;
 }
