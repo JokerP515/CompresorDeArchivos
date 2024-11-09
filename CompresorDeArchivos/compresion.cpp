@@ -22,8 +22,8 @@ bool isDirectory(const string& path) {
 
 // Función para escribir un archivo comprimido
 void writeCompressedFile(const string& inputFilename, const string& outputFilename, const string& content, int compressionLevel = Z_BEST_COMPRESSION) {
-    uLong sourceLength = (uLong)content.size();
-    uLong destLength = compressBound(sourceLength);
+    uLongf sourceLength = (uLongf)content.size();
+    uLongf destLength = compressBound(sourceLength);
 
     vector<char> compressedData(destLength);
     int result = compress2(reinterpret_cast<Bytef*>(compressedData.data()), &destLength,
@@ -36,9 +36,13 @@ void writeCompressedFile(const string& inputFilename, const string& outputFilena
         uint8_t isFolder = 0;  // 0 indica que es un archivo
         outputFile.write(reinterpret_cast<char*>(&isFolder), sizeof(isFolder));
 
-        uint32_t nameLength = (uint32_t)inputFilename.size();
+        uLongf nameLength = (uLongf)inputFilename.size();
         outputFile.write(reinterpret_cast<char*>(&nameLength), sizeof(nameLength));
         outputFile.write(inputFilename.c_str(), nameLength);
+
+        // Guardar tamaño original del contenido
+        uLongf sourceSize = (uLongf)sourceLength;
+        outputFile.write(reinterpret_cast<char*>(&sourceSize), sizeof(sourceSize));
 
         // Guardar contenido comprimido
         outputFile.write(compressedData.data(), destLength);
@@ -56,7 +60,7 @@ void compressDirectory(const string& inputDir, const string& outputFilename, int
     uint8_t isFolder = 1;  // 1 indica que es una carpeta
     outputFile.write(reinterpret_cast<char*>(&isFolder), sizeof(isFolder));
 
-    uint32_t dirNameLength = (uint32_t)inputDir.size();
+    uLongf dirNameLength = (uLongf)inputDir.size();
     outputFile.write(reinterpret_cast<char*>(&dirNameLength), sizeof(dirNameLength));
     outputFile.write(inputDir.c_str(), dirNameLength);
 
@@ -65,18 +69,23 @@ void compressDirectory(const string& inputDir, const string& outputFilename, int
             string relativePath = fs::relative(entry.path(), inputDir).string();
             string content = readFile(entry.path().string());
 
-            uLong sourceLength = (uLong)content.size();
-            uLong destLength = compressBound(sourceLength);
+            uLongf sourceLength = (uLongf)content.size();
+            uLongf destLength = compressBound(sourceLength);
             vector<char> compressedData(destLength);
 
             int result = compress2(reinterpret_cast<Bytef*>(compressedData.data()), &destLength,
                 reinterpret_cast<const Bytef*>(content.data()), sourceLength, compressionLevel);
 
             if (result == Z_OK) {
-                uint32_t pathLength = (uint32_t)relativePath.size();
+                uLongf pathLength = (uLongf)relativePath.size();
                 outputFile.write(reinterpret_cast<char*>(&pathLength), sizeof(pathLength));
                 outputFile.write(relativePath.c_str(), pathLength);
 
+                // Guardar tamaño original del contenido
+                uLongf sourceSize = (uLongf)sourceLength;
+                outputFile.write(reinterpret_cast<char*>(&sourceSize), sizeof(sourceSize));
+
+                // Guardar contenido comprimido
                 outputFile.write(reinterpret_cast<char*>(&destLength), sizeof(destLength));
                 outputFile.write(compressedData.data(), destLength);
             }
@@ -94,7 +103,7 @@ void decompressDirectory(const string& compressedFilename) {
     inputFile.read(reinterpret_cast<char*>(&isFolder), sizeof(isFolder));
 
     if (isFolder == 1) {
-        uint32_t dirNameLength;
+        uLongf dirNameLength;
         inputFile.read(reinterpret_cast<char*>(&dirNameLength), sizeof(dirNameLength));
 
         string baseFolderName(dirNameLength, '\0');
@@ -103,22 +112,25 @@ void decompressDirectory(const string& compressedFilename) {
         fs::create_directory(baseFolderName);
 
         while (inputFile) {
-            uint32_t pathLength;
+            uLongf pathLength;
             if (!inputFile.read(reinterpret_cast<char*>(&pathLength), sizeof(pathLength))) break;
 
             string relativePath(pathLength, '\0');
             inputFile.read(&relativePath[0], pathLength);
 
-            uint32_t compressedSize;
+            // Leer el tamaño original antes de descomprimir
+            uLongf originalSize;
+            inputFile.read(reinterpret_cast<char*>(&originalSize), sizeof(originalSize));
+
+            uLongf compressedSize;
             inputFile.read(reinterpret_cast<char*>(&compressedSize), sizeof(compressedSize));
 
             vector<char> compressedData(compressedSize);
             inputFile.read(compressedData.data(), compressedSize);
 
-            uLongf uncompressedLength = compressedSize * 10;
-            vector<char> uncompressedData(uncompressedLength);
+            vector<char> uncompressedData(originalSize);
 
-            int result = uncompress(reinterpret_cast<Bytef*>(uncompressedData.data()), &uncompressedLength,
+            int result = uncompress(reinterpret_cast<Bytef*>(uncompressedData.data()), &originalSize,
                 reinterpret_cast<const Bytef*>(compressedData.data()), compressedSize);
 
             if (result == Z_OK) {
@@ -126,8 +138,11 @@ void decompressDirectory(const string& compressedFilename) {
                 fs::create_directories(fullPath.parent_path());
 
                 ofstream outputFile(fullPath, ios::binary);
-                outputFile.write(uncompressedData.data(), uncompressedLength);
-            }else cout<<"No se pudo descomprimir el archivo: "<<relativePath<<"\n";
+                outputFile.write(uncompressedData.data(), originalSize);
+            }
+            else {
+                cout << "No se pudo descomprimir el archivo: " << relativePath << "\n";
+            }
         }
 
         cout << "Carpeta descomprimida en: " << baseFolderName << endl;
@@ -136,7 +151,6 @@ void decompressDirectory(const string& compressedFilename) {
         throw runtime_error("No es una carpeta comprimida");
     }
 }
-
 
 // Función para leer archivo comprimido y obtener su tipo
 void decompressFile(const string& compressedFilename) {
@@ -150,23 +164,26 @@ void decompressFile(const string& compressedFilename) {
     }
     else {
         string originalFilename;
-        uint32_t nameLength;
+        uLongf nameLength;
         inputFile.read(reinterpret_cast<char*>(&nameLength), sizeof(nameLength));
 
         originalFilename.resize(nameLength);
         inputFile.read(&originalFilename[0], nameLength);
 
+        // Leer el tamaño original antes de descomprimir
+        uLongf originalSize;
+        inputFile.read(reinterpret_cast<char*>(&originalSize), sizeof(originalSize));
+
         string compressedData((istreambuf_iterator<char>(inputFile)), istreambuf_iterator<char>());
 
-        uLongf uncompressedLength = (uLongf)compressedData.size() * 10;
-        vector<char> uncompressedData(uncompressedLength);
+        vector<char> uncompressedData(originalSize);
 
-        int result = uncompress(reinterpret_cast<Bytef*>(uncompressedData.data()), &uncompressedLength,
-            reinterpret_cast<const Bytef*>(compressedData.data()), (uLong)compressedData.size());
+        int result = uncompress(reinterpret_cast<Bytef*>(uncompressedData.data()), &originalSize,
+            reinterpret_cast<const Bytef*>(compressedData.data()), compressedData.size());
 
         if (result == Z_OK) {
             ofstream outputFile(originalFilename, ios::binary);
-            outputFile.write(uncompressedData.data(), uncompressedLength);
+            outputFile.write(uncompressedData.data(), originalSize);
             cout << "Archivo descomprimido como: " << originalFilename << endl;
         }
         else {
@@ -205,6 +222,7 @@ int main(int argc, char* argv[]) {
             string baseName = fs::path(inputPath).stem().string(); //fs::path(inputPath).filename().string()
             baseName[0] = isalpha(baseName[0]) ? toupper(baseName[0]) : baseName[0];
             string outputFilename ="comprimido" + baseName + ".gzip";
+            cout<<"Comprimiendo archivo..."<<endl;
             if (isDirectory(inputPath)) {
 				compressDirectory(inputPath, outputFilename);
 			}
@@ -215,6 +233,7 @@ int main(int argc, char* argv[]) {
             break;
         }
         case '2': {
+            cout<<"Descomprimiendo archivo..."<<endl;
 			string inputPath = argv[2];
 			decompressFile(inputPath);
 			break;
